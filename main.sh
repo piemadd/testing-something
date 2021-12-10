@@ -1,17 +1,9 @@
-globals
-[
-  newcomer              ;; an agent who has never collaborated
-  component-size        ;; current running size of component being explored
-  giant-component-size  ;; size of largest connected component
-  components            ;; list of connected components
-]
-
 turtles-own
 [
-  incumbent?   ;; true if an agent has collaborated before
   in-team?     ;; true if an agent belongs to the new team being constructed
-  downtime     ;; the number of time steps passed since the agent last collaborated
-  explored?    ;; used to compute connected components in the graph
+  union? ;;does the turtle want a union?
+  buster? ;;does a turtle not want a union?
+  match-change? ;; signifies if this turtle has had a link already added. fixes weird bug where both groups converge into one massive group, which doesn't work
 ]
 
 links-own
@@ -29,11 +21,11 @@ to make-newcomer
   [
     set color blue + 1
     set size 1.8
-    set incumbent? false
     set in-team? false
-    set newcomer self
-    set downtime 0
-    set explored? false
+    set union? false
+    set buster? false
+    set match-change? false
+    set color blue
   ]
 end
 
@@ -43,85 +35,206 @@ to setup
   set-default-shape turtles "circle"
 
   ;; assemble the first team
-  repeat team-size [ make-newcomer ]
-  ask turtles
-  [
-    set in-team? true
-    set incumbent? true
+  repeat starting-turtles [ make-newcomer ]
+
+  repeat 2 [
+    ask one-of turtles [
+      set union? true
+      set buster? false
+      set in-team? true
+      set color green
+    ]
   ]
+
+  tie-collaborators
+  color-collaborations
+
+  ask turtles [
+    set in-team? false
+  ]
+
+  repeat 2 [
+  ask one-of turtles with [union? != true]
+    [
+      set union? false
+      set buster? true
+      set in-team? true
+      set color yellow
+    ]
+  ]
+
+
   tie-collaborators
   color-collaborations
 
   ask turtles  ;; arrange turtles in a regular polygon
   [
-    set heading (360 / team-size) * who
+    set heading (360 / 2) * who
     fd 1.75
     set in-team? false
   ]
-  find-all-components
+
+  layout
+
   reset-ticks
 end
 
+to check-yeet
+  if turtles with [union? = true] = NOBODY [
+    print "there are no more unionizers"
+    stop
+  ]
+
+  if turtles with [buster? = true] = NOBODY [
+    print "there are no more union busters lol"
+    stop
+  ]
+
+  ;;ask turtles [
+  ;  if count links > 0 and union? = false and buster? = false [
+  ;    show links
+  ;    stop
+  ;  ]
+  ;]
+
+  ;;print "checked"
+end
 
 ;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Main Procedures ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
-  ;; all existing turtles are now considered incumbents
-  ask turtles [set incumbent? true set color gray - 1.5 set size 0.9]
-  ask links [set new-collaboration? false]
 
-  ;; assemble a new team
-  pick-team-members
-  tie-collaborators
-  color-collaborations
+  ;;;check-yeet
+
+  if turtles with [union? = true] = NOBODY [
+    print "there are no more unionizers, union loses"
+    stop
+  ]
+
+  if count turtles with [union? = true] < 2 [
+    print "there aren't enough pro-union turtles to proceed, union loses"
+    stop
+  ]
+
+  ;;unions
+  union-work
+
+  if turtles with [buster? = true] = NOBODY [
+    print "there are no more union busters lol, union wins"
+    stop
+  ]
+
+  if count turtles with [buster? = true] < 2 [
+    print "there aren't enough anti-union turtles to proceed, union wins"
+    stop
+  ]
+
+  ;;busters
+  buster-work
 
   ;; age turtles
   ask turtles
   [
-    ;; agents drop out of the collaboration network when they become inactive for max-downtime steps
-    if downtime > max-downtime
-      [die]
-
     set in-team? false
-    set downtime downtime + 1
   ]
 
-  if layout? [ layout ]
-  find-all-components
+  layout
+
   tick
 end
 
+;;causes random "friendships" to form, adding or removing people from the unionizers or busters
+to union-work
+  ;;;check-yeet
 
-;; choose turtles to be in a new team
-to pick-team-members
-  let new-team-member nobody
-  repeat team-size
-  [
-    ifelse random-float 100.0 >= p  ;;with a probability P, make a newcomer
-    [
-      make-newcomer
-      set new-team-member newcomer
-    ]
-    [
-      ;; with a probability Q, choose a new team member who was a previous collaborator of an existing team member
-      ;; if the current team has at least one previous collaborator.
-      ;; otherwise collaborate with a previous incumbent
-      ifelse random-float 100.0 < q and any? (turtles with [in-team? and (any? link-neighbors with [not in-team?])])
-        [set new-team-member one-of turtles with [not in-team? and (any? link-neighbors with [in-team?])]]
-        [set new-team-member one-of turtles with [not in-team?]]
-    ]
-    ask new-team-member  ;; specify turtle to become a new team member
-    [
-      set in-team? true
-      set downtime 0
-      set size 1.8
-      set color ifelse-value incumbent? [yellow + 2] [blue + 1]
+  ;;print "unions"
+  ask one-of turtles with [union? = true and buster? = false] [
+    ;;print self
+    set in-team? true
+    if random 100 < p [
+      ;;;check-yeet
+      ask one-of turtles with [union? = false and match-change? = false] [
+        set match-change? true
+        ifelse buster? = false [
+          set union? true
+          set in-team? true
+          set color green
+        ]
+        [
+          ask my-links [
+            die
+          ]
+          set union? false
+          set buster? false
+          set color blue
+        ]
+      ]
     ]
   ]
+
+  tie-collaborators
+  color-collaborations
+
+  ask turtles [
+    set in-team? false
+  ]
+
 end
 
+to buster-work
+
+  ;;print "busters"
+  ask one-of turtles with [union? = false and buster? = true] [
+    ;;print self
+    set in-team? true
+    if random 100 < q [
+      ;;;check-yeet
+      ask one-of turtles with [buster? = false and match-change? = false] [
+        set match-change? true
+        ifelse union? = false [
+          set buster? true
+          set in-team? true
+          set color yellow
+        ]
+        [
+          ask my-links [
+            die
+          ]
+          set union? false
+          set buster? false
+          set color blue
+        ]
+      ]
+    ]
+  ]
+
+  tie-collaborators
+  color-collaborations
+
+  ask turtles [
+    set in-team? false
+    set match-change? false
+  ]
+
+  ;;;check-yeet
+
+
+  ;;fixing issue where groups would fragment on a person leaving
+  ;;ask turtles with [union? = true] [
+  ;;  create-links-with other turtles with [union? = true]
+  ;;]
+
+  ;;;;;check-yeet
+
+  ;;ask turtles with [buster? = true] [
+  ;;  create-links-with other turtles with [buster?]
+  ;;]
+
+  ;;;check-yeet
+
+end
 
 ;; forms a link between all unconnected turtles with in-team? = true
 to tie-collaborators
@@ -146,14 +259,14 @@ to color-collaborations
     [
       ifelse new-collaboration?
       [
-        ifelse ([incumbent?] of end1) and ([incumbent?] of end2)
+        ifelse ([union?] of end1) and ([union?] of end2)
         [
-          set color yellow       ;; both members are incumbents
+          set color green       ;; both members are union
         ]
         [
-          ifelse ([incumbent?] of end1) or ([incumbent?] of end2)
-            [ set color turquoise ]  ;; one member is an incumbent
-            [ set color blue ]   ;; both members are newcomers
+          ifelse ([buster?] of end1) and ([buster?] of end2)
+            [ set color yellow ]   ;; both members are busters
+            [ set color red ]
         ]
       ]
       [
@@ -168,46 +281,6 @@ to layout
     layout-spring turtles links 0.18 0.01 1.2
     display
   ]
-end
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; Network Exploration ;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; to find all the connected components in the network, their sizes and starting turtles
-to find-all-components
-  set components []
-  set giant-component-size 0
-
-  ask turtles [ set explored? false ]
-  ;; keep exploring till all turtles get explored
-  loop
-  [
-    ;; pick a turtle that has not yet been explored
-    let start one-of turtles with [ not explored? ]
-    if start = nobody [ stop ]
-    ;; reset the number of turtles found to 0
-    ;; this variable is updated each time we explore an
-    ;; unexplored turtle.
-    set component-size 0
-    ask start [ explore ]
-    ;; the explore procedure updates the component-size variable.
-    ;; so check, have we found a new giant component?
-    if component-size > giant-component-size
-    [
-      set giant-component-size component-size
-    ]
-    set components lput component-size components
-  ]
-end
-
-;; finds all turtles reachable from this turtle
-to explore ;; turtle procedure
-  if explored? [ stop ]
-  set explored? true
-  set component-size component-size + 1
-  ask link-neighbors [ explore ]
 end
 
 
